@@ -41,7 +41,9 @@ namespace SecureFileTransfer
         Fail = 0xA2,
         UnAuth = 0xA3,
         DataTrans = 0xA4,
-        Meta = 0xA5
+        Meta = 0xA5,
+        StartTrans = 0xA6,
+        FinishTrans = 0xA7
     };
 
     public struct SftPacketHeader
@@ -117,7 +119,7 @@ DataLen: {DataLen}
             //int bytes = sslStream.Read(headerBuffer, 0, headerBuffer.Length);
             
             header = new(headerBuffer);
-            header.Display();
+            //header.Display();
             if (header.DataLen == 0)
                 return;
             byte[] bodyBuffer = new byte[header.DataLen];

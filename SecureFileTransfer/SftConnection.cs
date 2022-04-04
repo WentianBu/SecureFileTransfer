@@ -12,11 +12,12 @@ namespace SecureFileTransfer
 {
     internal class SftConnection
     {
+        public ushort ConnectionId { get; set; }
         public TcpClient TheTcpClient { get; set; }
         public SslStream TheSslStream { get; set; }
-
         public bool IsAuthenticated { get; set; } = false;
-        //public bool IsMainConnection { get; set; } = false; 
+        public bool IsMainConnection { get; set; } = false; 
+        public bool DataConnectionBusy { get; set; } = false;
 
 
         private static bool ValidateServerCertificate(
@@ -34,8 +35,9 @@ namespace SecureFileTransfer
             return false;
         }
 
-        internal SftConnection(TcpClient tcpClient, string trustedServerCertName)
+        internal SftConnection(TcpClient tcpClient, string trustedServerCertName, ushort id)
         {
+            ConnectionId = id;
             TheTcpClient = tcpClient;
             TheSslStream = new SslStream(TheTcpClient.GetStream(), false, new RemoteCertificateValidationCallback(ValidateServerCertificate), null);
             try
@@ -64,10 +66,10 @@ namespace SecureFileTransfer
             {
                 TheSslStream.AuthenticateAsServer(serverCert, clientCertificateRequired: false, checkCertificateRevocation: true);
                 // Display the properties and settings for the authenticated stream.
-                DisplaySecurityLevel(TheSslStream);
-                DisplaySecurityServices(TheSslStream);
-                DisplayCertificateInformation(TheSslStream);
-                DisplayStreamProperties(TheSslStream);
+                //DisplaySecurityLevel(TheSslStream);
+                //DisplaySecurityServices(TheSslStream);
+                //DisplayCertificateInformation(TheSslStream);
+                //DisplayStreamProperties(TheSslStream);
             }
             catch (AuthenticationException e)
             {
@@ -86,6 +88,7 @@ namespace SecureFileTransfer
 
         internal void WritePacket(SftPacket pkt)
         {
+            //Console.WriteLine("Send Pkt: {0}", pkt.header.cmdType);
             TheSslStream.Write(pkt.ConvertToBytes());
         }
 
@@ -105,7 +108,7 @@ namespace SecureFileTransfer
                 TheTcpClient.Close();
                 throw ex;
             }
-            
+            //Console.WriteLine("Receive Pkt: {0}", inPkt.header.cmdType);
             return inPkt;
         }
 
@@ -131,6 +134,7 @@ namespace SecureFileTransfer
 
         internal void SendReset(ushort clientId, ushort reqId)
         {
+
             SftPacket sftPacket = new(SftCmdType.Reset, clientId, reqId, null);
             WritePacket(sftPacket);
             return;
@@ -166,8 +170,8 @@ namespace SecureFileTransfer
         {
             Console.WriteLine("Certificate revocation list checked: {0}", stream.CheckCertRevocationStatus);
 
-            X509Certificate localCertificate = stream.LocalCertificate;
-            if (stream.LocalCertificate != null)
+            X509Certificate? localCertificate = stream.LocalCertificate;
+            if (localCertificate != null)
             {
                 Console.WriteLine("Local cert was issued to {0} and is valid from {1} until {2}.",
                     localCertificate.Subject,
@@ -179,8 +183,8 @@ namespace SecureFileTransfer
                 Console.WriteLine("Local certificate is null.");
             }
             // Display the properties of the client's certificate.
-            X509Certificate remoteCertificate = stream.RemoteCertificate;
-            if (stream.RemoteCertificate != null)
+            X509Certificate? remoteCertificate = stream.RemoteCertificate;
+            if (remoteCertificate != null)
             {
                 Console.WriteLine("Remote cert was issued to {0} and is valid from {1} until {2}.",
                     remoteCertificate.Subject,

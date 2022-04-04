@@ -61,7 +61,55 @@ namespace SecureFileTransfer.Client
         {
             if (mainConnection == null)
                 throw new InvalidOperationException("Main connection unavailable.");
+            foreach (var conn in dataConnections)
+            {
+                SendBye(conn);
+            }
             SendBye(mainConnection);
+        }
+
+        public bool Upload(string localPath, string remotePath, long startPos = 0)
+        {
+            if (mainConnection == null)
+                throw new InvalidOperationException("Main connection unavailable.");
+            SftConnection? dataConnection = GetIdleDataConnection();
+            if (dataConnection == null)
+            {
+                Console.WriteLine("No idle data connection!");
+                return false;
+            }
+            if (!dataConnection.IsAuthenticated)
+            {
+                Tuple<bool, SftPacketData?> authResult = SendAuth(dataConnection);
+                if (!authResult.Item1)
+                {
+                    Console.WriteLine((authResult.Item2 as SftRejectData)?.RejectMessage);
+                    return false;
+                }
+            }
+            return SendUpload(dataConnection, localPath, remotePath, startPos);
+        }
+
+        public bool Download(string localPath, string remotePath, long startPos = 0)
+        {
+            if (mainConnection == null)
+                throw new InvalidOperationException("Main connection unavailable.");
+            SftConnection? dataConnection = GetIdleDataConnection();
+            if (dataConnection == null)
+            {
+                Console.WriteLine("No idle data connection!");
+                return false;
+            }
+            if (!dataConnection.IsAuthenticated)
+            {
+                Tuple<bool, SftPacketData?> authResult = SendAuth(dataConnection);
+                if (!authResult.Item1)
+                {
+                    Console.WriteLine((authResult.Item2 as SftRejectData)?.RejectMessage);
+                    return false;
+                }
+            }
+            return SendDownload(dataConnection, localPath, remotePath, startPos);
         }
     }
 }

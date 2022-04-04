@@ -18,6 +18,9 @@ namespace ClientConsole
             SftClient sftClient = new(sftClientConfig, "127.0.0.1", 9090);
             sftClient.Login("wentianbu", "abcdefgh");
             sftClient.List("/newsss");
+            sftClient.Download(@"C:\Users\Wentian Bu\SFTTest\clientroot\新建文本文档.txt", "/newsss/新建文本文档.txt");
+            sftClient.Upload(@"C:\Users\Wentian Bu\SFTTest\clientroot\video.mp4", "/newsss/newvideo.mp4");
+            Thread.Sleep(10000);
             sftClient.Bye();
 
 

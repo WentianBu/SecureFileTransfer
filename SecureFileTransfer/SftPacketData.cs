@@ -52,6 +52,7 @@ namespace SecureFileTransfer.Data
         {
             Message = msg;
             ClientTime = DateTime.Now;
+
         }
 
         public SftClientHelloData(string msg, DateTime clientTime)
@@ -82,9 +83,14 @@ namespace SecureFileTransfer.Data
     {
         public string? UserName { get; set; }
         public string? Password { get; set; }
+        public ushort ConnectionId { get; set; }
 
         public SftLoginData() { }
-        public SftLoginData(string? u, string? p) { UserName = u; Password = p; }
+        public SftLoginData(string? u, string? p, ushort connectionId = 0)
+        {
+            UserName = u; Password = p; ConnectionId = connectionId;
+        }
+
 
     }
 
@@ -120,8 +126,14 @@ namespace SecureFileTransfer.Data
     public class SftAuthData : SftPacketData
     {
         public string? AuthToken { get; set; }
+        public ushort ConnectionId { get; set; }
         public SftAuthData() { }
-        public SftAuthData(string t) { AuthToken = t; }
+        public SftAuthData(string t, ushort connectionId)
+        {
+            AuthToken = t;
+            ConnectionId = connectionId;
+        }
+
     }
 
     public class SftByeData : SftPacketData { }
@@ -189,6 +201,8 @@ namespace SecureFileTransfer.Data
     }
 
     public class SftUnAuthData : SftPacketData { }
+
+    public class SftOKData : SftPacketData { }
     public class SftFailData : SftPacketData
     {
         public string? Message { get; set; }
@@ -196,7 +210,35 @@ namespace SecureFileTransfer.Data
         public SftFailData(string? message) { Message = message; }
     }
 
+    public class SftStartTransData : SftPacketData
+    {
+        public long Length { get; set; } = 0;
+        public long StartPos { get; set; } = 0;
+        public SftStartTransData() { }
+        public SftStartTransData(long length, long startPos = 0) { Length = length; StartPos = startPos; }
+    }
 
+    public class SftUploadData : SftPacketData
+    {
+        public string Path { get; set; }
+        public long StartPos { get; set; } = 0;
+        public ushort ConnectionId { get; set; }
 
+        public SftUploadData() { Path = ""; }
+        public SftUploadData(string path, long startPos, ushort connId)
+        { Path = path; StartPos = startPos; ConnectionId = connId; }
+    }
+
+    public class SftDownloadData : SftPacketData
+    {
+        public string Path { get; set; }
+        public long StartPos { get; set; } = 0;
+        public ushort ConnectionId { get; set; }
+        public SftDownloadData() { Path = ""; }
+        public SftDownloadData(string path, long startPos, ushort connId)
+        { Path = path; StartPos = startPos; ConnectionId = connId; }
+    }
+
+    public class SftFinishTransData : SftPacketData { }
 
 }

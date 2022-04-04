@@ -34,7 +34,7 @@ namespace SecureFileTransfer.Server
         public string AuthToken { get; set; }
 
         public SftConnection MainConnection { get; set; } = null!;
-        public List<SftConnection> DataConnections { get; set; } = new List<SftConnection>();
+        public Dictionary<ushort, SftConnection> DataConnections { get; set; } = new Dictionary<ushort, SftConnection>();
 
 
         public SftRemoteClient(IPAddress ip, Dictionary<ushort, SftRemoteClient> d)
@@ -76,7 +76,11 @@ namespace SecureFileTransfer.Server
                 X509Certificate2.CreateFromPemFile(config.CertPemFilePath, config.KeyPemFilePath).Export(X509ContentType.Pkcs12));
         }
 
-
+        private void PostTransferTask(SftTransferTask tsk)
+        {
+            tsk.Connection!.DataConnectionBusy = false;
+            Console.WriteLine("File transfer task finished.");
+        }
 
         public void Start()
         {
@@ -104,6 +108,7 @@ namespace SecureFileTransfer.Server
         {
             if (obj == null) { throw new ArgumentNullException(nameof(obj)); }
             SftConnection sftConnection = (SftConnection)obj;
+            Console.WriteLine("Connection ID: {0}", sftConnection.ConnectionId);
             SftPacket sftPacket;
             bool keepHandle = true;
             while (keepHandle)
@@ -118,8 +123,9 @@ namespace SecureFileTransfer.Server
                     sftConnection.Close();
                     return;
                 }
-
-                IPAddress clientIp = (sftConnection.TheTcpClient.Client.RemoteEndPoint as IPEndPoint).Address;
+                IPEndPoint? _rEndp = sftConnection.TheTcpClient.Client.RemoteEndPoint as IPEndPoint;
+                if (_rEndp == null) throw new ArgumentNullException(nameof(sftConnection.TheTcpClient.Client.RemoteEndPoint));
+                IPAddress clientIp = _rEndp.Address;
 
                 // check the SftPacket type and do different things
                 switch (sftPacket.header.cmdType)
@@ -137,11 +143,15 @@ namespace SecureFileTransfer.Server
                         break;
                     case SftCmdType.Reset:
                         // bye and reset should close all the connections
-                        HandleReset(sftPacket, sftConnection);
+                        HandleReset(sftConnection);
                         keepHandle = false;
                         break;
                     case SftCmdType.List:
                         HandleList(sftPacket, sftConnection); break;
+                    case SftCmdType.Upload:
+                        HandleUpload(sftPacket, sftConnection); break;
+                    case SftCmdType.Download:
+                        HandleDownload(sftPacket, sftConnection); break;
 
                     default:
                         break;
@@ -152,13 +162,23 @@ namespace SecureFileTransfer.Server
 
         private void HandleClientHello(SftPacket inPkt, SftConnection sftConnection, IPAddress cIp)
         {
-            if (inPkt.serializedData != null)
+            if (inPkt.serializedData == null)
             {
-                SftClientHelloData? sftClientHelloData =
-                    SftPacketData.Deserialize<SftClientHelloData>(inPkt.serializedData);
-                if (sftClientHelloData != null)
-                    SftPacketData.DisplayData(sftClientHelloData);
+                sftConnection.SendReset(0, 0);
+                sftConnection.Close();
+                return;
             }
+
+            SftClientHelloData? sftClientHelloData =
+                SftPacketData.Deserialize<SftClientHelloData>(inPkt.serializedData);
+            if (sftClientHelloData == null)
+            {
+                sftConnection.SendReset(0, 0);
+                sftConnection.Close();
+                return;
+            }
+            SftPacketData.DisplayData(sftClientHelloData);
+
 
             SftServerHelloData sftServerHelloData = new("Hello, this is SFT server.", cIp);
             SftPacket sftPacket = new(SftCmdType.ServerHello, 0, 0, SftPacketData.Serialize(sftServerHelloData));
@@ -176,7 +196,8 @@ namespace SecureFileTransfer.Server
             else
             {
                 SftLoginData? sftLoginData = SftPacketData.Deserialize<SftLoginData>(inPkt.serializedData);
-                Console.WriteLine("UserName: {0}\nPassword: {1}", sftLoginData?.UserName, sftLoginData?.Password);
+                Console.WriteLine("UserName: {0}\nPassword: {1}\nConnectionId: {2}",
+                    sftLoginData?.UserName, sftLoginData?.Password, sftLoginData?.ConnectionId);
 
 
                 // temp test
@@ -186,6 +207,8 @@ namespace SecureFileTransfer.Server
                 {
                     // authenticate passed
                     sftConnection.IsAuthenticated = true;
+                    sftConnection.ConnectionId = sftLoginData.ConnectionId;
+                    sftConnection.IsMainConnection = true;
                     SftRemoteClient remoteClient = new(cIp, clientDict);
                     remoteClient.MainConnection = sftConnection;
                     clientDict.Add(remoteClient.ClientId, remoteClient);
@@ -220,14 +243,16 @@ namespace SecureFileTransfer.Server
                 sftConnection.WritePacket(outPkt);
                 return;
             }
-            SftRemoteClient? sftRemoteClient;
-            if (clientDict.TryGetValue(inPkt.header.clientId, out sftRemoteClient))
+            if (clientDict.TryGetValue(inPkt.header.clientId, out SftRemoteClient? sftRemoteClient))
             {
                 // client id exists
                 if (sftRemoteClient.AuthToken == sftAuthData.AuthToken)
                 {
                     // auth passed
                     sftConnection.IsAuthenticated = true;
+                    sftConnection.ConnectionId = sftAuthData.ConnectionId;
+                    sftConnection.IsMainConnection = false;
+                    sftRemoteClient.DataConnections.Add(sftConnection.ConnectionId, sftConnection);
                     SftWelcomeData sftWelcomeData = new(inPkt.header.clientId, sftAuthData.AuthToken, null, null, "Auth suceeded.");
                     SftPacket outPkt = new(SftCmdType.Welcome, inPkt.header.clientId, inPkt.header.reqId, SftPacketData.Serialize(sftWelcomeData));
                     sftConnection.WritePacket(outPkt);
@@ -261,10 +286,9 @@ namespace SecureFileTransfer.Server
             Console.WriteLine("Bye received.");
         }
 
-        private void HandleReset(SftPacket inPkt, SftConnection sftConnection)
+        private void HandleReset(SftConnection sftConnection)
         {
             // don't need response
-            
             sftConnection.Close();
         }
 
@@ -306,6 +330,97 @@ namespace SecureFileTransfer.Server
                 sftConnection.WritePacket(outPkt);
                 return;
             }
+        }
+
+        private void HandleUpload(SftPacket inPkt, SftConnection sftConnection)
+        {
+            if (!clientDict.TryGetValue(inPkt.header.clientId, out SftRemoteClient? sftRemoteClient))
+            {
+                // client invalid
+                SftFailData sftFailData = new("Invalid clientID!");
+                SftPacket outPkt = new(SftCmdType.Fail, inPkt.header.clientId, inPkt.header.reqId, SftPacketData.Serialize(sftFailData));
+                sftConnection.WritePacket(outPkt);
+                return;
+            }
+            if (!sftConnection.CheckAuthStatus(inPkt.header.reqId))
+                return;
+            SftUploadData? sftUploadData = SftPacketData.Deserialize<SftUploadData>(inPkt.serializedData);
+            if (sftUploadData == null)
+            {
+                SftFailData sftFailData = new("Bad Upload command!");
+                SftPacket outPkt = new(SftCmdType.Fail, inPkt.header.clientId, inPkt.header.reqId, SftPacketData.Serialize(sftFailData));
+                sftConnection.WritePacket(outPkt);
+                return;
+            }
+            
+
+            if (sftUploadData?.ConnectionId == null 
+                || sftUploadData.ConnectionId == sftRemoteClient.MainConnection.ConnectionId
+                || !sftRemoteClient.DataConnections.TryGetValue(sftUploadData.ConnectionId, out SftConnection? dataConnection))
+            {
+                SftFailData sftFailData = new("Invalid Connection Id!");
+                SftPacket outPkt = new(SftCmdType.Fail, inPkt.header.clientId, inPkt.header.reqId, SftPacketData.Serialize(sftFailData));
+                sftConnection.WritePacket(outPkt);
+                return;
+            }
+
+            dataConnection.DataConnectionBusy = true;
+            SftServerTransferTask sftServerTransferTask = new(inPkt.header.clientId, inPkt.header.reqId, sftUploadData, dataConnection, config.RootDirPath);
+            // add to task list
+            SftPacket okPkt = new(SftCmdType.OK, inPkt.header.clientId, inPkt.header.reqId, null);
+            sftConnection.WritePacket(okPkt);
+            sftServerTransferTask.Start(PostTransferTask);
+
+            
+
+        }
+
+        private void HandleDownload(SftPacket inPkt, SftConnection sftConnection)
+        {
+            if (!clientDict.TryGetValue(inPkt.header.clientId, out SftRemoteClient? sftRemoteClient))
+            {
+                // client invalid
+                SftFailData sftFailData = new("Invalid clientID!");
+                SftPacket outPkt = new(SftCmdType.Fail, inPkt.header.clientId, inPkt.header.reqId, SftPacketData.Serialize(sftFailData));
+                sftConnection.WritePacket(outPkt);
+                return;
+            }
+            if (!sftConnection.CheckAuthStatus(inPkt.header.reqId))
+                return;
+            SftDownloadData? sftDownloadData = SftPacketData.Deserialize<SftDownloadData>(inPkt.serializedData);
+            if (sftDownloadData == null)
+            {
+                SftFailData sftFailData = new("Bad Download command!");
+                SftPacket outPkt = new(SftCmdType.Fail, inPkt.header.clientId, inPkt.header.reqId, SftPacketData.Serialize(sftFailData));
+                sftConnection.WritePacket(outPkt);
+                return;
+            }
+            if (sftDownloadData?.ConnectionId == null
+                || sftDownloadData.ConnectionId == sftRemoteClient.MainConnection.ConnectionId
+                || !sftRemoteClient.DataConnections.TryGetValue(sftDownloadData.ConnectionId, out SftConnection? dataConnection))
+            {
+                SftFailData sftFailData = new("Invalid Connection Id!");
+                SftPacket outPkt = new(SftCmdType.Fail, inPkt.header.clientId, inPkt.header.reqId, SftPacketData.Serialize(sftFailData));
+                sftConnection.WritePacket(outPkt);
+                return;
+            }
+            SftServerTransferTask sftServerTransferTask;
+            try
+            {
+                sftServerTransferTask = new(inPkt.header.clientId, inPkt.header.reqId, sftDownloadData, dataConnection, config.RootDirPath);
+                
+            } 
+            catch (FileNotFoundException e)
+            {
+                SftFailData sftFailData = new(e.Message + "not found!");
+                SftPacket outPkt = new(SftCmdType.Fail, inPkt.header.clientId, inPkt.header.reqId, SftPacketData.Serialize(sftFailData));
+                sftConnection.WritePacket(outPkt);
+                return;
+            }
+
+            SftPacket okPkt = new(SftCmdType.OK, inPkt.header.clientId, inPkt.header.reqId, null);
+            sftConnection.WritePacket(okPkt);
+            sftServerTransferTask.Start(PostTransferTask);
         }
 
 

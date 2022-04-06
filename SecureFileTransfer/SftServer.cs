@@ -21,6 +21,7 @@ namespace SecureFileTransfer.Server
         public string CertPemFilePath { get; set; } = null!;
         public string KeyPemFilePath { get; set; } = null!;
         public string RootDirPath { get; set; } = null!;
+        public string UserInfoFile { get; set; } = null!;
 
     }
 
@@ -67,6 +68,7 @@ namespace SecureFileTransfer.Server
         private X509Certificate2 serverCert = null!;
         private SftServerConfig config = null!;
         internal Dictionary<ushort, SftRemoteClient> clientDict = new(65536);
+        private string[] userInfoDb = null;
 
         public SftServer(SftServerConfig c)
         {
@@ -74,6 +76,7 @@ namespace SecureFileTransfer.Server
             // a bug in the windows: pem must be exported to pkcs12
             serverCert = new X509Certificate2(
                 X509Certificate2.CreateFromPemFile(config.CertPemFilePath, config.KeyPemFilePath).Export(X509ContentType.Pkcs12));
+            userInfoDb = File.ReadAllLines(c.UserInfoFile);
         }
 
         private void PostTransferTask(SftTransferTask tsk)
@@ -199,11 +202,35 @@ namespace SecureFileTransfer.Server
                 Console.WriteLine("UserName: {0}\nPassword: {1}\nConnectionId: {2}",
                     sftLoginData?.UserName, sftLoginData?.Password, sftLoginData?.ConnectionId);
 
+                bool isLoginSuccess = false;
+                if (sftLoginData?.UserName != null && sftLoginData.Password != null)
+                {
+                    var query =
+                    from user in userInfoDb
+                    where sftLoginData?.UserName == user.Split('|')[0]
+                    select user;
 
+                    foreach (var u in query)
+                    {
+                        string passwdMd5 = u.Split('|')[1];
+                        string userInputPwdMd5;
+                        using (MD5 md5 = MD5.Create())
+                        {
+                            byte[] userInputPwdMd5Bytes = md5.ComputeHash(Encoding.ASCII.GetBytes(sftLoginData.Password));
+                            userInputPwdMd5 = Convert.ToHexString(userInputPwdMd5Bytes);
+                            Console.WriteLine("UserInput Pwd Md5: {0}", userInputPwdMd5);
+                        }
+                        
+                        if (passwdMd5 == userInputPwdMd5)
+                        {
+                            isLoginSuccess = true;
+                            break;
+                        }
+                    }
+                }
+                
                 // temp test
-                var trueUserName = "wentianbu";
-                var truePasswd = "abcdefgh";
-                if (sftLoginData?.UserName == trueUserName && sftLoginData.Password == truePasswd)
+                if (isLoginSuccess)
                 {
                     // authenticate passed
                     sftConnection.IsAuthenticated = true;

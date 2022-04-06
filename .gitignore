@@ -3,6 +3,11 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# configs of the program
+config/
+# publish
+publish/
+
 # User-specific files
 *.rsuser
 *.suo

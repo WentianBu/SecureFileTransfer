@@ -16,10 +16,26 @@ namespace Server // Note: actual namespace depends on the project name.
     {
         static int Main(string[] args)
         {
-            //Console.WriteLine("Hello World!");
-            string certPemFilePath = @"C:\Users\Wentian Bu\certs\server2.cer";
-            string keyPemFilePath = @"C:\Users\Wentian Bu\certs\server2.key";
-            string RootWorkDir = @"C:\Users\Wentian Bu\SFTTest\serverroot\";
+            string certPemFilePath, keyPemFilePath, RootWorkDir, UserInfoFilePath;
+            if (args.Length == 4)
+            {
+                certPemFilePath = args[0];
+                keyPemFilePath = args[1];
+                RootWorkDir = args[2];
+                UserInfoFilePath = args[3];
+            }
+            else if (args.Length == 0)
+            {
+                //Console.WriteLine("Hello World!");
+                certPemFilePath = @"C:\Users\Wentian Bu\certs\server2.cer";
+                keyPemFilePath = @"C:\Users\Wentian Bu\certs\server2.key";
+                RootWorkDir = @"C:\Users\Wentian Bu\SFTTest\serverroot\";
+                UserInfoFilePath = @"C:\Users\Wentian Bu\source\repos\SecureFileTransfer\config\userinfo.txt";
+            } else
+            {
+                Console.WriteLine("Usage: ./Server certPemFilePath keyPemFilePath serverRootDir");
+                return 0;
+            }
             
             SftServerConfig sftServerConfig = new()
             {
@@ -27,7 +43,8 @@ namespace Server // Note: actual namespace depends on the project name.
                 KeyPemFilePath = keyPemFilePath,
                 ListenAddress = IPAddress.Any,
                 Port = 9090,
-                RootDirPath = RootWorkDir
+                RootDirPath = RootWorkDir,
+                UserInfoFile = UserInfoFilePath
             };
             SftServer sftServer = new(sftServerConfig);
             sftServer.Start();

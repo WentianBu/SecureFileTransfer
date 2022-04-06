@@ -30,7 +30,7 @@ namespace SecureFileTransfer.Client
             }
         }
 
-        public bool List(string path)
+        public Tuple<bool, SftPacketData?> List(string path)
         {
             Console.WriteLine("Send list command.");
             if (mainConnection == null)
@@ -39,23 +39,10 @@ namespace SecureFileTransfer.Client
             {
                 throw new ArgumentException("Path in LIST command must starts from root(/)!", nameof(path));
             }
-            Tuple<bool, SftPacketData?> listResult = SendList(mainConnection!, path);
-            if (listResult.Item1)
-            {
-                SftMetaData? sftMetaData = (SftMetaData?)listResult.Item2;
-                if (sftMetaData == null)
-                {
-                    throw new ArgumentNullException("Metadata packet is null.");
-                }
-                SftPacketData.DisplayData(sftMetaData);
-            }
-            else
-            {
-                SftFailData? sftFailData = (SftFailData?)listResult.Item2;
-                Console.WriteLine(sftFailData?.Message);
-            }
-            return listResult.Item1;
+            return SendList(mainConnection, path);
+            
         }
+
 
         public void Bye()
         {
